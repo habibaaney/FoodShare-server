@@ -176,6 +176,7 @@ const client = new MongoClient(uri, {
 // Collections
 let foodsCollection;
 let foodRequestsCollection;
+let blogsCollection;
 
 
 
@@ -214,6 +215,8 @@ async function run() {
 
     foodsCollection = db.collection("foods");
     foodRequestsCollection = db.collection("foodRequests");
+    blogsCollection = db.collection("blogs");
+    newsletterCollection = db.collection("newsletterSubscribers");
 
     console.log("MongoDB connected successfully");
   } catch (err) {
@@ -249,7 +252,7 @@ app.get("/featured-foods", async (req, res) => {
     const featuredFoods = await foodsCollection
       .find({ status: "available" })
       .sort({ quantity: -1 })
-      .limit(6)
+      .limit(8)
       .toArray();
     res.send(featuredFoods);
   } catch (err) {
@@ -397,7 +400,122 @@ app.get("/food-requests", async (req, res) => {
   } catch (error) {
     res.status(500).send({ error: "Failed to fetch food requests" });
   }
+}); 
+
+// Delete food request
+app.delete("/food-requests/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await foodRequestsCollection.deleteOne({ _id: new ObjectId(id) });
+
+    res.send(result);
+  } catch (error) {
+    console.error("Error deleting food request:", error);
+    res.status(500).send({ error: "Failed to delete food request" });
+  }
 });
+
+
+// ==========================
+// BLOG APIs
+// ==========================
+
+// Add a new blog
+app.post("/blogs",async (req, res) => {
+  try {
+    const newBlog = req.body;
+    if (!newBlog.title || !newBlog.image || !newBlog.content || !newBlog.author) {
+      return res.status(400).json({ message: "All blog fields are required" });
+    }
+
+    newBlog.createdAt = new Date();
+    const result = await blogsCollection.insertOne(newBlog);
+    res.json({ success: true, insertedId: result.insertedId });
+  } catch (error) {
+    console.error("POST /blogs error:", error);
+    res.status(500).json({ message: "Failed to add blog" });
+  }
+});
+
+// Get all blogs
+app.get("/blogs", async (req, res) => {
+  try {
+    const blogs = await blogsCollection.find().sort({ createdAt: -1 }).toArray();
+    res.json(blogs);
+  } catch (error) {
+    console.error("GET /blogs error:", error);
+    res.status(500).json({ message: "Failed to fetch blogs" });
+  }
+});
+
+// Get single blog
+app.get("/blogs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid blog ID" });
+
+    const blog = await blogsCollection.findOne({ _id: new ObjectId(id) });
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
+
+    res.json(blog);
+  } catch (error) {
+    console.error("GET /blogs/:id error:", error);
+    res.status(500).json({ message: "Failed to fetch blog" });
+  }
+});
+
+// PATCH: update a blog
+app.patch("/blogs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid blog ID" });
+    }
+
+    // Only allow certain fields to be updated
+    const { title, content, image, author } = req.body;
+    const updatedBlog = { title, content, image, author };
+
+    const result = await blogsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedBlog }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Blog not found" });
+    }
+
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (error) {
+    console.error("PATCH /blogs/:id error:", error);
+    res.status(500).json({ message: "Failed to update blog", error: error.message });
+  }
+});
+// Delete blog
+app.delete("/blogs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid blog ID" });
+
+    const result = await blogsCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).json({ message: "Blog not found" });
+
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error("DELETE /blogs/:id error:", error);
+    res.status(500).json({ message: "Failed to delete blog" });
+  }
+});
+
+
+
+// ==========================
+// ✅ Contact Form API
+// ==========================
+
+
 
 // Setup Nodemailer transporter with your email service credentials
 // Example uses Gmail — you need to allow less secure apps or create an App Password
@@ -437,6 +555,30 @@ app.post("/contact", (req, res) => {
   });
 });
 
+
+
+// ==========================
+// ✅ Newsletter Subscription API
+// ==========================
+app.post("/newsletter", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  // Check if already exists
+  const existing = await newsletterCollection.findOne({ email });
+  if (existing) {
+    return res.json({ message: "You’re already subscribed!" });
+  }
+
+  const result = await newsletterCollection.insertOne({
+    email,
+    subscribedAt: new Date(),
+  });
+
+  res.json(result);
+});
 
 // ==========================
 // ✅ Start the Server
